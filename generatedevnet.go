@@ -62,6 +62,10 @@ var (
 		Usage: "<hashId>,<activationStatus: true,false>",
 	}
 
+	GenesisEZFlag = cli.BoolFlag{
+		Name: "ez",
+	}
+
 	devnetCommand = cli.Command{
 		Action:    devnetAction,
 		Name:      "generate-devnet",
@@ -77,6 +81,7 @@ var (
 			&GenesisFusionFlag,
 			&SporkAddressFlag,
 			&GenesisSporkFlag,
+			&GenesisEZFlag,
 		},
 	}
 )
@@ -126,8 +131,14 @@ func devnetAction(ctx *cli.Context) error {
 	}
 
 	// 6. Generate Genesis Config
-	if err := createDevGenesis(ctx, &cfg); err != nil {
-		return err
+	if hyperqube {
+		if err := createHQZDevGenesis(ctx, &cfg); err != nil {
+			return err
+		}
+	} else {
+		if err := createDevGenesis(ctx, &cfg); err != nil {
+			return err
+		}
 	}
 
 	// write config
@@ -321,16 +332,27 @@ func createDevGenesis(ctx *cli.Context, cfg *node.Config) error {
 	}
 	// apply genesis sporks flag
 	genesisSporks := make([]*definition.Spork, 0)
-	for sporkId, status := range genesisSporksMap {
-		spork := definition.Spork{
-			Id:                sporkId,
-			Name:              "genesis-spork",
-			Description:       "genesis-spork",
-			Activated:         status,
-			EnforcementHeight: 0,
-		}
-		genesisSporks = append(genesisSporks, &spork)
-	}
+	genesisSporks = append(genesisSporks, &definition.Spork{
+		Id:                types.AcceleratorSpork.SporkId,
+		Name:              "az",
+		Description:       "az",
+		Activated:         true,
+		EnforcementHeight: 0,
+	})
+	genesisSporks = append(genesisSporks, &definition.Spork{
+		Id:                types.HtlcSpork.SporkId,
+		Name:              "htlc",
+		Description:       "htlc",
+		Activated:         true,
+		EnforcementHeight: 0,
+	})
+	genesisSporks = append(genesisSporks, &definition.Spork{
+		Id:                types.BridgeAndLiquiditySpork.SporkId,
+		Name:              "bridge-liq",
+		Description:       "bridge-liq",
+		Activated:         true,
+		EnforcementHeight: 0,
+	})
 
 	gen := genesis.GenesisConfig{
 		ChainIdentifier:     321,
@@ -384,6 +406,24 @@ func createDevGenesis(ctx *cli.Context, cfg *node.Config) error {
 			},
 		}}
 
+	// Genesis Blocks
+
+	if ctx.Bool(GenesisEZFlag.Name) {
+		znn := big.NewInt(100000 * constants.Decimals)
+		qsr := big.NewInt(500000 * constants.Decimals)
+
+		znnStandard.TotalSupply.Add(znnStandard.TotalSupply, znn)
+		qsrStandard.TotalSupply.Add(qsrStandard.TotalSupply, qsr)
+		block := genesis.GenesisBlockConfig{
+			Address: localPillar,
+			BalanceList: map[types.ZenonTokenStandard]*big.Int{
+				types.ZnnTokenStandard: znn,
+				types.QsrTokenStandard: qsr,
+			},
+		}
+		gen.GenesisBlocks.Blocks = append(gen.GenesisBlocks.Blocks, &block)
+	}
+
 	if ctx.IsSet(GenesisBlockFlag.Name) {
 		input := ctx.StringSlice(GenesisBlockFlag.Name)
 		for _, s := range input {
@@ -409,8 +449,21 @@ func createDevGenesis(ctx *cli.Context, cfg *node.Config) error {
 		}
 	}
 
-	if ctx.IsSet(GenesisFusionFlag.Name) {
+	if ctx.IsSet(GenesisFusionFlag.Name) || ctx.Bool(GenesisEZFlag.Name) {
 		plasmaAddress := big.NewInt(0)
+
+		qsr := big.NewInt(1000 * constants.Decimals)
+		fusion := definition.FusionInfo{
+			Owner:            localPillar,
+			Id:               types.NewHash(localPillar.Bytes()),
+			Amount:           qsr,
+			ExpirationHeight: 1,
+			Beneficiary:      localPillar,
+		}
+		gen.PlasmaConfig.Fusions = append(gen.PlasmaConfig.Fusions, &fusion)
+		plasmaAddress.Add(plasmaAddress, qsr)
+		qsrStandard.TotalSupply.Add(qsrStandard.TotalSupply, qsr)
+
 		input := ctx.StringSlice(GenesisFusionFlag.Name)
 		for _, s := range input {
 
@@ -434,6 +487,228 @@ func createDevGenesis(ctx *cli.Context, cfg *node.Config) error {
 			Address: types.PlasmaContract,
 			BalanceList: map[types.ZenonTokenStandard]*big.Int{
 				types.QsrTokenStandard: plasmaAddress,
+			},
+		}
+		gen.GenesisBlocks.Blocks = append(gen.GenesisBlocks.Blocks, &block)
+
+	}
+
+	file, _ := json.MarshalIndent(gen, "", " ")
+	_ = os.WriteFile(cfg.GenesisFile, file, 0644)
+
+	return nil
+}
+
+func createHQZDevGenesis(ctx *cli.Context, cfg *node.Config) error {
+	if cfg.GenesisFile == "" {
+		cfg.GenesisFile = filepath.Join(cfg.DataPath, "genesis.json")
+	}
+
+	localPillar, _ := types.ParseAddress(cfg.Producer.Address)
+
+	utilZ := definition.TokenInfo{
+		Decimals:      8,
+		IsBurnable:    true,
+		IsMintable:    true,
+		IsUtility:     true,
+		MaxSupply:     big.NewInt(9007199254740991),
+		Owner:         types.TokenContract,
+		TokenDomain:   "hyperqube.network",
+		TokenName:     "utilZ",
+		TokenStandard: utilZ,
+		TokenSymbol:   "utilZ",
+		TotalSupply:   big.NewInt(78713599988800),
+	}
+	utilQ := definition.TokenInfo{
+		Decimals:      8,
+		IsBurnable:    true,
+		IsMintable:    true,
+		IsUtility:     true,
+		MaxSupply:     big.NewInt(9007199254740991),
+		Owner:         types.TokenContract,
+		TokenDomain:   "hyperqube.network",
+		TokenName:     "utilQ",
+		TokenStandard: utilQ,
+		TokenSymbol:   "utilQ",
+		TotalSupply:   big.NewInt(772135999888000),
+	}
+
+	// activate sporks for accelerator-z, htlc, and deactivating pillar registration
+	// create spork for bridge but do not activate
+	// can be overriden by --genesis-spork
+
+	genesisSporksMap := make(map[types.Hash]bool)
+	for sporkId, status := range types.ImplementedSporksMap {
+		genesisSporksMap[sporkId] = status
+	}
+
+	genesisSporks := make([]*definition.Spork, 0)
+	genesisSporks = append(genesisSporks, &definition.Spork{
+		Id:                types.AcceleratorSpork.SporkId,
+		Name:              "az",
+		Description:       "az",
+		Activated:         true,
+		EnforcementHeight: 0,
+	})
+	genesisSporks = append(genesisSporks, &definition.Spork{
+		Id:                types.HtlcSpork.SporkId,
+		Name:              "htlc",
+		Description:       "htlc",
+		Activated:         true,
+		EnforcementHeight: 0,
+	})
+	genesisSporks = append(genesisSporks, &definition.Spork{
+		Id:          types.BridgeAndLiquiditySpork.SporkId,
+		Name:        "bridge-liq",
+		Description: "bridge-liq",
+		Activated:   false,
+		// confirm enforcement hieght does nothing when not activated
+		EnforcementHeight: 0,
+	})
+
+	//sha3.256(hyperqube_z spork deactivate pillar registration)
+	genesisSporks = append(genesisSporks, &definition.Spork{
+		Id:          types.HexToHashPanic("c35c80695e6f1739ce19bd9b31e4a6702335fafd643139eb73b76541be2ca9e4"),
+		Name:        "hyperqube-no-pillar-reg",
+		Description: "hyperqube-no-pillar-reg",
+		Activated:   false,
+		// confirm enforcement hieght does nothing when not activated
+		EnforcementHeight: 0,
+	})
+
+	gen := genesis.GenesisConfig{
+		ChainIdentifier:     321,
+		ExtraData:           "HYPERQUBE LOCAL UNIFORM 60",
+		GenesisTimestampSec: time.Now().Unix(),
+		SporkAddress:        &localPillar,
+
+		PillarConfig: &genesis.PillarContractConfig{
+			Delegations:   []*definition.DelegationInfo{},
+			LegacyEntries: []*definition.LegacyPillarEntry{},
+			Pillars: []*definition.PillarInfo{
+				{
+					Name:                         "Local",
+					Amount:                       big.NewInt(1500000000000),
+					BlockProducingAddress:        localPillar,
+					StakeAddress:                 localPillar,
+					RewardWithdrawAddress:        localPillar,
+					PillarType:                   1,
+					RevokeTime:                   0,
+					GiveBlockRewardPercentage:    0,
+					GiveDelegateRewardPercentage: 100,
+				},
+			}},
+		TokenConfig: &genesis.TokenContractConfig{
+			Tokens: []*definition.TokenInfo{
+				&utilZ,
+				&utilQ,
+			}},
+		PlasmaConfig: &genesis.PlasmaContractConfig{
+			Fusions: []*definition.FusionInfo{}},
+		SwapConfig: &genesis.SwapContractConfig{
+			Entries: []*definition.SwapAssets{}},
+		SporkConfig: &genesis.SporkConfig{
+			Sporks: genesisSporks,
+		},
+		GenesisBlocks: &genesis.GenesisBlocksConfig{
+			Blocks: []*genesis.GenesisBlockConfig{
+				{
+					Address: types.PillarContract,
+					BalanceList: map[types.ZenonTokenStandard]*big.Int{
+						utilZ.TokenStandard: big.NewInt(1500000000000),
+					},
+				},
+				{
+					Address: types.AcceleratorContract,
+					BalanceList: map[types.ZenonTokenStandard]*big.Int{
+						utilZ.TokenStandard: big.NewInt(77213599988800),
+						utilQ.TokenStandard: big.NewInt(772135999888000),
+					},
+				},
+			},
+		}}
+
+	// Genesis Blocks
+
+	if ctx.Bool(GenesisEZFlag.Name) {
+		z := big.NewInt(100000 * constants.Decimals)
+		q := big.NewInt(500000 * constants.Decimals)
+
+		utilZ.TotalSupply.Add(utilZ.TotalSupply, z)
+		utilQ.TotalSupply.Add(utilQ.TotalSupply, q)
+		block := genesis.GenesisBlockConfig{
+			Address: localPillar,
+			BalanceList: map[types.ZenonTokenStandard]*big.Int{
+				utilZ.TokenStandard: z,
+				utilQ.TokenStandard: q,
+			},
+		}
+		gen.GenesisBlocks.Blocks = append(gen.GenesisBlocks.Blocks, &block)
+	}
+
+	if ctx.IsSet(GenesisBlockFlag.Name) {
+		input := ctx.StringSlice(GenesisBlockFlag.Name)
+		for _, s := range input {
+
+			ss := strings.Split(s, "/")
+			a, _ := types.ParseAddress(ss[0])
+			z, _ := strconv.ParseInt(ss[1], 10, 64)
+			q, _ := strconv.ParseInt(ss[2], 10, 64)
+			zs := big.NewInt(z * constants.Decimals)
+			qs := big.NewInt(q * constants.Decimals)
+
+			utilZ.TotalSupply.Add(utilZ.TotalSupply, zs)
+			utilQ.TotalSupply.Add(utilQ.TotalSupply, qs)
+			block := genesis.GenesisBlockConfig{
+				Address: a,
+				BalanceList: map[types.ZenonTokenStandard]*big.Int{
+					utilZ.TokenStandard: zs,
+					utilQ.TokenStandard: qs,
+				},
+			}
+			gen.GenesisBlocks.Blocks = append(gen.GenesisBlocks.Blocks, &block)
+
+		}
+	}
+
+	if ctx.IsSet(GenesisFusionFlag.Name) || ctx.Bool(GenesisEZFlag.Name) {
+		plasmaAddress := big.NewInt(0)
+
+		q := big.NewInt(1000 * constants.Decimals)
+		fusion := definition.FusionInfo{
+			Owner:            localPillar,
+			Id:               types.NewHash(localPillar.Bytes()),
+			Amount:           q,
+			ExpirationHeight: 1,
+			Beneficiary:      localPillar,
+		}
+		gen.PlasmaConfig.Fusions = append(gen.PlasmaConfig.Fusions, &fusion)
+		plasmaAddress.Add(plasmaAddress, q)
+		utilQ.TotalSupply.Add(utilQ.TotalSupply, q)
+
+		input := ctx.StringSlice(GenesisFusionFlag.Name)
+		for _, s := range input {
+
+			ss := strings.Split(s, "/")
+			a, _ := types.ParseAddress(ss[0])
+			q, _ := strconv.ParseInt(ss[1], 10, 64)
+			qsr := big.NewInt(q * constants.Decimals)
+
+			utilQ.TotalSupply.Add(utilQ.TotalSupply, qsr)
+			plasmaAddress.Add(plasmaAddress, qsr)
+			fusion := definition.FusionInfo{
+				Owner:            a,
+				Id:               types.NewHash(a.Bytes()),
+				Amount:           qsr,
+				ExpirationHeight: 1,
+				Beneficiary:      a,
+			}
+			gen.PlasmaConfig.Fusions = append(gen.PlasmaConfig.Fusions, &fusion)
+		}
+		block := genesis.GenesisBlockConfig{
+			Address: types.PlasmaContract,
+			BalanceList: map[types.ZenonTokenStandard]*big.Int{
+				utilQ.TokenStandard: plasmaAddress,
 			},
 		}
 		gen.GenesisBlocks.Blocks = append(gen.GenesisBlocks.Blocks, &block)
