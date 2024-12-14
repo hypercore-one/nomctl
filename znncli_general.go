@@ -155,7 +155,7 @@ var znnCliReceiveAll = &cli.Command{
 
 		for unreceived.Count > 0 {
 			for _, block := range unreceived.List {
-				temp := template.Receive(1, uint64(chainId), block.Hash)
+				temp := template.Receive(z.ProtocolVersion(), z.ChainIdentifier(), block.Hash)
 				_, err = utils.Send(z, temp, kp, false)
 				if err != nil {
 					fmt.Println("Error receiving txs:", err)
