@@ -58,7 +58,7 @@ var znnCliSend = &cli.Command{
 			return nil
 		}
 
-		amount = amount.Mul(amount, big.NewInt(10^int64(token.Decimals)))
+		amount = amount.Mul(amount, new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(token.Decimals)), nil))
 
 		tmpl := template.Send(z.ProtocolVersion(), z.ChainIdentifier(), toAddress, zts, amount, []byte{})
 		_, err = utils.Send(z, tmpl, kp, false)
