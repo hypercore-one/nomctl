@@ -133,6 +133,7 @@ func main() {
 				Subcommands: utilsSubcommands,
 			},
 			&devnetCommand,
+			&generateHyperQubeGenesisCommand,
 		},
 		Flags: []cli.Flag{
 			&HyperQubeFlag,
