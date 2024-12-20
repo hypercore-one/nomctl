@@ -7,8 +7,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/ignition-pillar/go-zdk/client"
-	"github.com/ignition-pillar/go-zdk/zdk"
+	"github.com/hypercore-one/go-zdk/client"
+	"github.com/hypercore-one/go-zdk/utils"
+	"github.com/hypercore-one/go-zdk/zdk"
 	"github.com/shopspring/decimal"
 	"github.com/urfave/cli/v2"
 	"github.com/zenon-network/go-zenon/common/types"
@@ -19,6 +20,16 @@ import (
 var url string
 var chainId int
 var walletDir string
+var hyperqube bool
+
+var (
+	HyperQubeFlag = cli.BoolFlag{
+		Name:        "hyperqube",
+		Usage:       "",
+		Aliases:     []string{"hq"},
+		Destination: &hyperqube,
+	}
+)
 
 const ZnnDecimals = 8
 const QsrDecimals = 8
@@ -26,12 +37,24 @@ const QsrDecimals = 8
 const rpcMaxPageSize = 1024
 
 func connect(url string, chainId int) (*zdk.Zdk, error) {
-	rpc, err := client.NewClient(url, client.ChainIdentifier(uint64(chainId)))
-	if err != nil {
-		return nil, err
+	// TODO Can probably get rid of chainId flag long term
+	if hyperqube {
+		// ignores chainId flag
+		rpc, err := utils.NewClientFromMeta(url)
+		if err != nil {
+			return nil, err
+		}
+		z := zdk.NewZdk(rpc)
+		return z, nil
+	} else {
+		// old logic
+		rpc, err := client.NewClient(url, client.ChainIdentifier(uint64(chainId)))
+		if err != nil {
+			return nil, err
+		}
+		z := zdk.NewZdk(rpc)
+		return z, nil
 	}
-	z := zdk.NewZdk(rpc)
-	return z, nil
 }
 
 func formatAmount(amount *big.Int, decimals uint8) string {
@@ -75,8 +98,28 @@ func main() {
 		},
 	}
 
+	utilsValidateTokenStandard := &cli.Command{
+		Name:  "validate-token",
+		Usage: "",
+		Action: func(cCtx *cli.Context) error {
+			if cCtx.NArg() != 1 {
+				fmt.Println("Incorrect number of arguments. Expected:")
+				fmt.Println("validate-token standard")
+				return nil
+			}
+			a := cCtx.Args().Get(0)
+			token, err := types.ParseZTS(a)
+			if err != nil {
+				return err
+			}
+			fmt.Println(token, "is a valid token standard")
+			return nil
+		},
+	}
+
 	utilsSubcommands := []*cli.Command{
 		utilsValidateAddress,
+		utilsValidateTokenStandard,
 	}
 
 	app := &cli.App{
@@ -90,6 +133,9 @@ func main() {
 				Subcommands: utilsSubcommands,
 			},
 			&devnetCommand,
+		},
+		Flags: []cli.Flag{
+			&HyperQubeFlag,
 		},
 	}
 
